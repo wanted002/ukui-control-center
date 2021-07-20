@@ -27,19 +27,21 @@ public:
     void setConfig(const KScreen::ConfigPtr &config);
     void setUnifiedOutput(const KScreen::OutputPtr &output);
     void activateOutputNoParam();
+    void changescalemax(const KScreen::OutputPtr &output);
 
 private:
     void isWayland();
 
 public Q_SLOTS:
     void activateOutput(const KScreen::OutputPtr &output);
+    void slotOutputConnectedChanged();
 
 Q_SIGNALS:
     void changed();
     void scaleChanged(double scale);
 
 private Q_SLOTS:
-    void addOutput(const KScreen::OutputPtr &output);
+    void addOutput(const KScreen::OutputPtr &output, bool connectChanged);
     void removeOutput(int outputId);
 
 public:

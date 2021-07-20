@@ -17,8 +17,29 @@ void UpdateSource::startDbus()
         qDebug() << "源管理器：" <<"Service Interface: " << qPrintable(QDBusConnection::systemBus().lastError().message());
         return;
     }
-
     emit startDbusFinished();
+}
+
+QString UpdateSource::getOrSetConf(QString type, QStringList name)
+{
+    QVariantList args;
+    args << QVariant::fromValue(type);
+    args << QVariant::fromValue(name);
+    QDBusPendingReply<QString > reply = serviceInterface->call("getOrSetAutoUpgradeconf", args);
+    qDebug() << args;
+
+    if (!reply.isValid()) {
+        qDebug() << "获取自动更新配置文件失败";
+        return reply;
+    }
+    return reply;
+}
+
+void UpdateSource::killProcessSignal(int pid, int signal)
+{
+    QVariantList args;
+    args << QVariant::fromValue(pid) << QVariant::fromValue(signal);
+    serviceInterface->call("killProcessSignal", args);
 }
 
 /*
@@ -27,6 +48,9 @@ void UpdateSource::startDbus()
 void UpdateSource::callDBusUpdateTemplate()
 {
     QDBusPendingCall call = serviceInterface->asyncCall("updateSourceTemplate");
+    if (!call.isValid()) {
+        qDebug() << "updateSourceTemplate 成功";
+    }
     QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(call,this);
     connect(watcher,&QDBusPendingCallWatcher::finished,this,&UpdateSource::getReply);
     qDebug() <<"源管理器：" << "callDBusUpdateTemplate: " << "updateSourceTemplate";

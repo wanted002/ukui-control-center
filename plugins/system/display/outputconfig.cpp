@@ -1,6 +1,7 @@
 #include "outputconfig.h"
 #include "resolutionslider.h"
 #include "utils.h"
+#include "scalesize.h"
 
 #include <QStringBuilder>
 #include <QFormLayout>
@@ -10,6 +11,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QGroupBox>
+#include <QMessageBox>
 
 #include <QComboBox>
 #include <QGSettings>
@@ -20,22 +22,7 @@
 
 #include "ComboBox/combobox.h"
 
-#define SCALE_SCHEMAS "org.ukui.SettingsDaemon.plugins.xsettings"
-#define SCALE_KEY     "scaling-factor"
-
-const QSize KRsolution(1920, 1080);
-
-const QVector<QSize> k150Scale{QSize(1280, 1024), QSize(1440, 900), QSize(1600, 900),
-                               QSize(1680, 1050), QSize(1920, 1080), QSize(1920, 1200),
-                               QSize(2048, 1080), QSize(2048, 1280), QSize(2160, 1440),
-                               QSize(2560, 1440),QSize(3840, 2160)};
-
-const QVector<QSize> k175Scale{QSize(1680, 1050), QSize(1920, 1080), QSize(1920, 1200),
-                               QSize(2048, 1080), QSize(2048, 1280), QSize(2160, 1440),
-                               QSize(2560, 1440), QSize(3840, 2160)};
-
-const QVector<QSize> k200Scale{QSize(1920, 1200), QSize(2048, 1280), QSize(2160, 1440),
-                               QSize(2560, 1440), QSize(3840, 2160)};
+double mScaleres = 0;
 
 OutputConfig::OutputConfig(QWidget *parent) :
     QWidget(parent),
@@ -93,9 +80,14 @@ void OutputConfig::initUi()
     vbox->addWidget(resFrame);
 
     connect(mResolution, &ResolutionSlider::resolutionChanged,
-            this, &OutputConfig::slotResolutionChanged);
+            this, [=](QSize size, bool emitFlag){
+                slotResolutionChanged(size, emitFlag);
+            });
 
     connect(mResolution, &ResolutionSlider::resolutionChanged,
+            this, &OutputConfig::slotScaleIndex);
+
+    connect(mResolution, &ResolutionSlider::resolutionsave,
             this, &OutputConfig::slotScaleIndex);
 
     // 方向下拉框
@@ -155,9 +147,19 @@ void OutputConfig::initUi()
     mRefreshRate->addItem(tr("auto"), -1);
     vbox->addWidget(freshFrame);
 
-    slotResolutionChanged(mResolution->currentResolution());
+    slotResolutionChanged(mResolution->currentResolution(), true);
     connect(mRefreshRate, static_cast<void (QComboBox::*)(int)>(&QComboBox::activated),
             this, &OutputConfig::slotRefreshRateChanged);
+
+    // 缩放率下拉框
+    QFrame *scaleFrame = new QFrame(this);
+    scaleFrame->setFrameShape(QFrame::Shape::Box);
+
+    scaleFrame->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
+    scaleFrame->setMinimumSize(550, 50);
+    scaleFrame->setMaximumSize(960, 50);
+
+    QHBoxLayout *scaleLayout = new QHBoxLayout(scaleFrame);
 
     mScaleCombox = new QComboBox(this);
     mScaleCombox->setObjectName("scaleCombox");
@@ -182,17 +184,9 @@ void OutputConfig::initUi()
     scaleLabel->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
     scaleLabel->setFixedSize(118, 30);
 
-    QHBoxLayout *scaleLayout = new QHBoxLayout();
     scaleLayout->addWidget(scaleLabel);
     scaleLayout->addWidget(mScaleCombox);
 
-    QFrame *scaleFrame = new QFrame(this);
-    scaleFrame->setFrameShape(QFrame::Shape::Box);
-    scaleFrame->setLayout(scaleLayout);
-
-    scaleFrame->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
-    scaleFrame->setMinimumSize(550, 50);
-    scaleFrame->setMaximumSize(960, 50);
     vbox->addWidget(scaleFrame);
 
     initConnection();
@@ -229,8 +223,8 @@ void OutputConfig::initConnection()
     connect(mOutput.data(), &KScreen::Output::currentModeIdChanged,
             this, [=]() {
         mRefreshRate->blockSignals(true);
-        const int index = mRefreshRate->findData(mOutput->currentModeId());
-        mRefreshRate->setCurrentIndex(index);
+        if (mOutput->currentMode())
+            slotResolutionChanged(mOutput->currentMode()->size(), false);
         mRefreshRate->blockSignals(false);
     });
 }
@@ -241,7 +235,10 @@ void OutputConfig::initDpiConnection()
     if (QGSettings::isSchemaInstalled(SCALE_SCHEMAS)) {
         mDpiSettings = new QGSettings(id, QByteArray(), this);
         connect(mDpiSettings, &QGSettings::changed, this, [=](QString key) {
-            slotDPIChanged(key);
+            if (!key.compare("scalingFactor", Qt::CaseSensitive)) {
+                slotDPIChanged(key);
+            }
+
         });
     }
 }
@@ -262,7 +259,7 @@ KScreen::OutputPtr OutputConfig::output() const
     return mOutput;
 }
 
-void OutputConfig::slotResolutionChanged(const QSize &size)
+void OutputConfig::slotResolutionChanged(const QSize &size, bool emitFlag)
 {
     // Ignore disconnected outputs
     if (!size.isValid()) {
@@ -270,18 +267,18 @@ void OutputConfig::slotResolutionChanged(const QSize &size)
     }
 
     QString modeID;
-    KScreen::ModePtr selectedMode;
     KScreen::ModePtr currentMode = mOutput->currentMode();
     QList<KScreen::ModePtr> modes;
     Q_FOREACH (const KScreen::ModePtr &mode, mOutput->modes()) {
         if (mode->size() == size) {
-            selectedMode = mode;
             modes << mode;
         }
     }
 
-    Q_ASSERT(selectedMode);
-    modeID = selectedMode->id();
+//    Q_ASSERT(currentMode);
+    if (!currentMode)
+        return;
+    modeID = currentMode->id();
 
     // Don't remove the first "Auto" item - prevents ugly flicker of the combobox
     // when changing resolution
@@ -318,7 +315,8 @@ void OutputConfig::slotResolutionChanged(const QSize &size)
 
     mOutput->setCurrentModeId(modeID);
 
-    Q_EMIT changed();
+    if (emitFlag)
+        Q_EMIT changed();
 }
 
 void OutputConfig::slotRotationChanged(int index)
@@ -354,34 +352,68 @@ void OutputConfig::slotScaleChanged(int index)
 
 void OutputConfig::slotDPIChanged(QString key)
 {
-    if (!key.compare("scalingFactor", Qt::CaseSensitive)) {
-        double scale = mDpiSettings->get(key).toDouble();
+    double scale = mDpiSettings->get(key).toDouble();
+    if (mScaleCombox) {
         if (mScaleCombox->findData(scale) == -1) {
             mScaleCombox->addItem(scaleToString(scale), scale);
         }
         mScaleCombox->blockSignals(true);
         mScaleCombox->setCurrentText(scaleToString(scale));
         mScaleCombox->blockSignals(false);
+
     }
 }
 
 void OutputConfig::slotScaleIndex(const QSize &size)
 {
+    QSize msize;
+    if (mScaleSize != QSize()) {
+        msize = size.width() > mScaleSize.width()?mScaleSize:size;
+    } else {
+        msize = size;
+    }
+    if (!msize.isValid()) {
+        return;
+    }
+
     mScaleCombox->blockSignals(true);
     mScaleCombox->clear();
     mScaleCombox->addItem("100%", 1.0);
 
-
-    if (k150Scale.contains(size)) {
+    if (msize.width() >= 1024 ) {
         mScaleCombox->addItem("125%", 1.25);
+    }
+    if (msize.width() >= 1920 ) {
         mScaleCombox->addItem("150%", 1.5);
     }
-    if (k175Scale.contains(size)) {
+    if (msize.width() >= 2560) {
         mScaleCombox->addItem("175%", 1.75);
-    }
-    if (k200Scale.contains(size)) {
         mScaleCombox->addItem("200%", 2.0);
     }
+    if (msize.width() >= 3072) {
+       mScaleCombox->addItem("225%", 2.25);
+       mScaleCombox->addItem("250%", 2.5);
+    }
+    if (msize.width() >= 3840) {
+       mScaleCombox->addItem("275%", 2.75);
+    }
+
+    double scale = getScreenScale();
+
+    if (mScaleCombox->findData(scale) == -1) {
+        //该变量保存改变前的缩放率，当用户点击恢复时，恢复对应的缩放率
+        mScaleres = scale;
+
+        scale = 1.0;
+        if (QGSettings::isSchemaInstalled(SCALE_SCHEMAS)) {
+            if (mDpiSettings->keys().contains("scalingFactor")) {
+                mDpiSettings->set(SCALE_KEY,scale);
+            }
+        }
+        QMessageBox::information(this, tr("Information"),
+                                 tr("Some applications need to be logouted to take effect"));
+    }
+    mScaleCombox->setCurrentText(scaleToString(scale));
     mScaleCombox->blockSignals(false);
 }
 

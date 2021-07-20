@@ -17,6 +17,8 @@
 const QString kcnBj = "北京";
 const QString kenBj = "Asia/Beijing";
 
+extern void qt_blurImage(QImage &blurImage, qreal radius, bool quality, int transposed);
+
 TimeZoneChooser::TimeZoneChooser(QWidget *parent) : QFrame(parent)
 {
     m_map = new TimezoneMap(this);
@@ -32,28 +34,27 @@ TimeZoneChooser::TimeZoneChooser(QWidget *parent) : QFrame(parent)
     setAttribute(Qt::WA_StyledBackground,true);
     this->setAttribute(Qt::WA_TranslucentBackground);
 
-    this->setObjectName("MapFrame");
-    this->setStyleSheet("QFrame#MapFrame{background-color: rgb(22, 24, 26);border-radius:6px}");
-    this->setWindowTitle(tr("Change time zone"));
+//    this->setObjectName("MapFrame");
+//    this->setStyleSheet("QFrame#MapFrame{background-color: rgb(22, 24, 26);border-radius:6px}");
+//    this->setWindowTitle(tr("Change time zone"));
 
     QIcon icon = QIcon::fromTheme("window-close-symbolic");
     m_closeBtn->setIcon(ImageUtil::drawSymbolicColoredPixmap(icon.pixmap(32, 32),"white"));
     m_closeBtn->setFlat(true);
+    m_closeBtn->setFixedSize(30, 30);
     m_closeBtn->setProperty("isWindowButton", 0x2);
+    m_closeBtn->setProperty("useIconHighlightEffect", 0x08);
 
     m_searchInput->setMinimumSize(560,40);
     m_searchInput->setMaximumSize(560,40);
     m_searchInput->setMinimumHeight(40);
 
     m_title->setObjectName("titleLabel");
-    m_title->setStyleSheet("color: rgb(229, 240, 250 )");
     m_title->setText(tr("Change Timezone"));
 
     initSize();
 
     QHBoxLayout *wbLayout = new QHBoxLayout;
-    wbLayout->setMargin(6);
-    wbLayout->setSpacing(0);
     wbLayout->addStretch();
     wbLayout->addWidget(m_closeBtn);
 
@@ -66,8 +67,7 @@ TimeZoneChooser::TimeZoneChooser(QWidget *parent) : QFrame(parent)
 
 
     QVBoxLayout *layout = new QVBoxLayout;
-    layout->setMargin(0);
-    layout->setSpacing(0);
+    layout->setContentsMargins(0,16,16,0);
 
     layout->addLayout(wbLayout);
     layout->addStretch();
@@ -230,20 +230,44 @@ void TimeZoneChooser::initSize(){
 
 void TimeZoneChooser::paintEvent(QPaintEvent *event)
 {
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing);  // 反锯齿;
-    painter.setBrush(QBrush(QColor(22, 24, 26),Qt::SolidPattern));
-    painter.setPen(Qt::transparent);
-    QRect rect = this->rect();
-    rect.setWidth(rect.width() - 1);
-    rect.setHeight(rect.height() - 1);
-    painter.drawRoundedRect(rect, 6, 6);
-    {
-        QPainterPath painterPath;
-        painterPath.addRoundedRect(rect, 6, 6);
-        painter.drawPath(painterPath);
-    }
-    QWidget::paintEvent(event);
+    Q_UNUSED(event);
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    QPainterPath rectPath;
+    rectPath.addRoundedRect(this->rect().adjusted(10, 10, -10, -10), 6, 6);
+
+    // 画一个黑底
+    QPixmap pixmap(this->rect().size());
+    pixmap.fill(Qt::transparent);
+    QPainter pixmapPainter(&pixmap);
+    pixmapPainter.setRenderHint(QPainter::Antialiasing);
+    pixmapPainter.setPen(Qt::transparent);
+    pixmapPainter.setBrush(Qt::black);
+    pixmapPainter.setOpacity(0.65);
+    pixmapPainter.drawPath(rectPath);
+    pixmapPainter.end();
+
+    // 模糊这个黑底
+    QImage img = pixmap.toImage();
+    qt_blurImage(img, 10, false, false);
+
+    // 挖掉中心
+    pixmap = QPixmap::fromImage(img);
+    QPainter pixmapPainter2(&pixmap);
+    pixmapPainter2.setRenderHint(QPainter::Antialiasing);
+    pixmapPainter2.setCompositionMode(QPainter::CompositionMode_Clear);
+    pixmapPainter2.setPen(Qt::transparent);
+    pixmapPainter2.setBrush(Qt::transparent);
+    pixmapPainter2.drawPath(rectPath);
+
+    // 绘制阴影
+    p.drawPixmap(this->rect(), pixmap, pixmap.rect());
+
+    // 绘制一个背景
+    p.save();
+    p.fillPath(rectPath,palette().color(QPalette::Base));
+    p.restore();
+
 
 
 }

@@ -9,6 +9,8 @@
 
 #include <QGSettings>
 
+
+
 class QCheckBox;
 class ResolutionSlider;
 class QLabel;
@@ -37,13 +39,13 @@ public:
     void initConfig(const KScreen::ConfigPtr &config);
 
 protected Q_SLOTS:
-    void slotResolutionChanged(const QSize &size);
+    void slotResolutionChanged(const QSize &size, bool emitFlag);
     void slotRotationChanged(int index);
     void slotRefreshRateChanged(int index);
     void slotScaleChanged(int index);
     void slotDPIChanged(QString key);
 
-private Q_SLOTS:
+public Q_SLOTS:
     void slotScaleIndex(const QSize &size);
 
 Q_SIGNALS:
@@ -74,6 +76,7 @@ protected:
     bool mShowScaleOption = false;
     bool mIsWayland = false;
     bool mIsFirstLoad = true;
+
 
 #if QT_VERSION <= QT_VERSION_CHECK(5, 12, 0)
     KScreen::ConfigPtr mConfig;

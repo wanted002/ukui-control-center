@@ -1,12 +1,15 @@
 #include "controlpanel.h"
 #include "outputconfig.h"
 #include "unifiedoutputconfig.h"
+#include "utils.h"
 
 #include <QVBoxLayout>
 #include <QDebug>
 #include <QLabel>
 #include <QDBusInterface>
 #include <KF5/KScreen/kscreen/config.h>
+
+QSize mScaleSize = QSize();
 
 ControlPanel::ControlPanel(QWidget *parent) :
     QFrame(parent),
@@ -36,17 +39,33 @@ void ControlPanel::setConfig(const KScreen::ConfigPtr &config)
 
     mConfig = config;
     connect(mConfig.data(), &KScreen::Config::outputAdded,
-            this, &ControlPanel::addOutput);
+            this, [=](const KScreen::OutputPtr &output) {
+        addOutput(output, false);
+    });
     connect(mConfig.data(), &KScreen::Config::outputRemoved,
             this, &ControlPanel::removeOutput);
 
     for (const KScreen::OutputPtr &output : mConfig->outputs()) {
-        addOutput(output);
+        if (output->isConnected()) {
+            changescalemax(output);
+        }
+    }
+
+    for (const KScreen::OutputPtr &output : mConfig->outputs()) {
+        addOutput(output, false);
     }
 }
 
-void ControlPanel::addOutput(const KScreen::OutputPtr &output)
+void ControlPanel::addOutput(const KScreen::OutputPtr &output, bool connectChanged)
 {
+    if (!connectChanged) {
+        connect(output.data(), &KScreen::Output::isConnectedChanged,
+                    this, &ControlPanel::slotOutputConnectedChanged);
+    }
+    
+    if (!output->isConnected())
+        return;
+
     OutputConfig *outputCfg = new OutputConfig(this);
     outputCfg->setVisible(false);
     outputCfg->setShowScaleOption(mConfig->supportedFeatures().testFlag(KScreen::Config::Feature::PerOutputScaling));
@@ -72,14 +91,20 @@ void ControlPanel::removeOutput(int outputId)
     if (mUnifiedOutputCfg) {
         mUnifiedOutputCfg->setVisible(false);
     }
-
     for (OutputConfig *outputCfg : mOutputConfigs) {
+        if (!outputCfg || !outputCfg->output()) {
+            continue;
+        }
         if (outputCfg->output()->id() == outputId) {
             mOutputConfigs.removeOne(outputCfg);
-            delete outputCfg;
+            outputCfg->deleteLater();
             outputCfg = nullptr;
         } else {
-            outputCfg->setVisible(true);
+            if (outputCfg->output()->isConnected()) {
+                outputCfg->setVisible(true);
+            } else {
+                outputCfg->setVisible(false);
+            }
         }
     }
 }
@@ -106,8 +131,20 @@ void ControlPanel::activateOutputNoParam()
     }
 
     Q_FOREACH (OutputConfig *cfg, mOutputConfigs) {
-        qDebug()<<cfg->output()->id()<<" id";
         cfg->setVisible(cfg->output()->id() == 66);
+    }
+}
+
+void ControlPanel::changescalemax(const KScreen::OutputPtr &output)
+{
+    QSize sizescale = QSize();
+    Q_FOREACH (const KScreen::ModePtr &mode, output->modes()) {
+        if (sizescale.width() <= mode->size().width()) {
+            sizescale = mode->size();
+        }
+    }
+    if (mScaleSize == QSize() || mScaleSize.width() > sizescale.width()) {
+        mScaleSize = sizescale;
     }
 }
 
@@ -143,5 +180,30 @@ void ControlPanel::setUnifiedOutput(const KScreen::OutputPtr &output)
         mLayout->insertWidget(mLayout->count() - 2, mUnifiedOutputCfg);
         connect(mUnifiedOutputCfg, &UnifiedOutputConfig::changed,
                 this, &ControlPanel::changed);
+    }
+}
+
+void ControlPanel::slotOutputConnectedChanged()
+{
+    const KScreen::OutputPtr output(qobject_cast<KScreen::Output *>(sender()), [](void *){
+    });
+
+    if (output->isConnected()) {
+        changescalemax(output);
+        addOutput(output, true);
+        for (OutputConfig *outputCfg : mOutputConfigs) {
+            outputCfg->slotScaleIndex(mScaleSize);
+        }
+    } else {
+        removeOutput(output->id());
+        mScaleSize = QSize();
+        for (const KScreen::OutputPtr &output : mConfig->outputs()) {
+            if (output->isConnected()) {
+                changescalemax(output);
+            }
+        }
+        for (OutputConfig *outputCfg : mOutputConfigs) {
+            outputCfg->slotScaleIndex(mScaleSize);
+        }
     }
 }

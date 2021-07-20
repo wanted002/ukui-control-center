@@ -56,6 +56,12 @@ public:
     void removeDeviceItemUI(QString address);
     void addMyDeviceItemUI(BluezQt::DevicePtr);
     void MonitorSleepSignal();
+    void showNormalMainWindow();
+    void showMainWindowError();
+    void updateAdaterInfoList();
+    BluezQt::AdapterPtr getDefaultAdapter();
+    void adapterConnectFun();
+    void cleanPairDevices();
 protected:
     void leaveEvent(QEvent *event);
 
@@ -103,7 +109,7 @@ private:
 
     QVBoxLayout *bottom_layout = nullptr;
     QScrollArea *device_area = nullptr;
-    QWidget *device_list = nullptr;
+    QWidget * device_list = nullptr;
     QVBoxLayout *device_list_layout = nullptr;
 
     BluezQt::Manager *m_manager = nullptr;
@@ -116,9 +122,15 @@ private:
 
     QLabel *label_2 = nullptr;
     QLabel *loadLabel = nullptr;
+
     QPushButton *discover_refresh;
     QTimer *m_timer = nullptr;
     QTimer *discovering_timer =nullptr;
+    QTimer *delayStartDiscover_timer =nullptr;
+    QTimer *IntermittentScann_timer =nullptr;
+    QTimer *poweronAgain_timer =nullptr;
+    int IntermittentScann_timer_count = 0 ;
+
     int i = 7;
     bool show_flag = false;
     bool sleep_status = false;
@@ -126,6 +138,7 @@ private:
     void clearUiShowDeviceList();
     void addOneBluetoothDeviceItemUi(BluezQt::DevicePtr);
 
+    void clearAllDeviceItemUi();
 };
 
 #endif // BLUETOOTHMAIN_H

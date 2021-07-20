@@ -38,19 +38,22 @@ extern "C" {
 #include <gio/gio.h>
 
 }
-
+#include <QtConcurrent/QtConcurrent>
 #include "run-passwd2.h"
 
 PasswdHandler * passwd_handler = NULL;
 
 static void chpasswd_cb(PasswdHandler * passwd_handler, GError * error, gpointer user_data);
 
+QStringList ddcProIdList;
 
 SysdbusRegister::SysdbusRegister()
 {
     mHibernateFile = "/etc/systemd/sleep.conf";
     mHibernateSet = new QSettings(mHibernateFile, QSettings::IniFormat, this);
     mHibernateSet->setIniCodec("UTF-8");
+    runThreadFlag = false;
+    getBrightnessInfo();
 }
 
 SysdbusRegister::~SysdbusRegister()
@@ -181,21 +184,29 @@ void SysdbusRegister::setDDCBrightness(QString brightness, QString type) {
 }
 
 int SysdbusRegister::getDDCBrightness(QString type) {
-    QString program = "ddcutil";
+    QString program = "/usr/sbin/i2ctransfer";
     QStringList arg;
-    arg << "getvcp" << "10" << "--bus" << type;
-    QProcess *vcpPro = new QProcess(this);
+    arg<<"-f"<<"-y"<<type<<"w5@0x37"<<"0x51"<<"0x82"<<"0x01"<<"0x10"<<"0xac";
+    QProcess *vcpPro = new QProcess();
     vcpPro->start(program, arg);
+    vcpPro->waitForStarted();
     vcpPro->waitForFinished();
-
+    arg.clear();
+    arg<<"-f"<<"-y"<<type<<"r16@0x37";
+    usleep(40000);
+    vcpPro->start(program, arg);
+    vcpPro->waitForStarted();
+    vcpPro->waitForFinished();
     QString result = vcpPro->readAllStandardOutput().trimmed();
+    if (result == "")
+        return -1;
+    QString bri=result.split(" ").at(9);
+    bool ok;
+    int bright=bri.toInt(&ok,16);
+    if(ok && bright >= 0 && bright <= 100)
+        return bright;
 
-    QRegExp rx("current value =(\\s+)(\\d+)");
-    int pos = rx.indexIn(result);
-    if (pos > -1) {
-        return rx.cap(2).toInt();
-    }
-    return 0;
+    return -1;
 }
 
 static void chpasswd_cb(PasswdHandler *passwd_handler, GError *error, gpointer user_data){
@@ -241,4 +252,84 @@ bool SysdbusRegister::setNtpSerAddress(QString serverAddress)
     system("timedatectl set-ntp true");
     return true;
 
+}
+
+void SysdbusRegister::getBrightnessInfo()
+{
+    if (true == runThreadFlag)
+        return;
+
+    QtConcurrent::run([=] {
+        runThreadFlag = true;
+        QString program = "/usr/bin/ddcutil";
+        QStringList arg;
+        arg << "detect";
+        QProcess *vcpPro = new QProcess();
+        vcpPro->start(program, arg);
+        vcpPro->waitForStarted();
+        vcpPro->waitForFinished();
+        QByteArray arr=vcpPro->readAll();
+
+        char *re=arr.data();
+        char *p;
+        QList<QString> l;
+        while (*re) {
+            p=strpbrk(re,"\n");
+            *p=0;
+            QString s=re;
+            s=s.trimmed();
+            l.append(s);
+            re=++p;
+            if(*re=='\n')
+                re++;
+        }
+        
+        for (int i=0; i < l.count(); i=i+9) {
+            if (l.at(i).contains("display", Qt::CaseInsensitive)) {
+                QString bus=l.at(i+1).split(":").at(1).trimmed();
+                QString serial=l.at(i+5).split(":").at(1).trimmed();
+                QString busType = bus.split("-").at(1);
+                bool existFlag = false;
+                for (int i = 0; i < brightInfo_V.size(); i++) {
+                    if (brightInfo_V[i].serialNum == serial) {
+                        brightInfo_V[i].brightness = getDDCBrightness(busType);
+                        existFlag = true;
+                        break;
+                    }
+                }
+                if (false == existFlag) {
+                    struct brightInfo  mBrightInfo;
+                    mBrightInfo.serialNum  = serial;
+                    mBrightInfo.busType    = busType;
+                    mBrightInfo.brightness = getDDCBrightness(busType);
+                    brightInfo_V.push_back(mBrightInfo);
+                }
+            }
+        }
+        runThreadFlag = false;
+    });
+    return;
+}
+
+void SysdbusRegister::setDDCBrightnessUkui(QString brightness, QString serialNum)
+{
+    for (int i = 0; i < brightInfo_V.size(); i++) {
+        if (brightInfo_V[i].serialNum == serialNum) {
+            setDDCBrightness(brightness, brightInfo_V[i].busType);
+            brightInfo_V[i].brightness = brightness.toInt();
+            return;
+        }
+    }
+}
+
+int SysdbusRegister::getDDCBrightnessUkui(QString serialNum)
+{
+    for (int i = 0; i < brightInfo_V.size(); i++) {
+        if (brightInfo_V[i].serialNum == serialNum && brightInfo_V[i].brightness >= 0 && brightInfo_V[i].brightness <= 100) {
+            return brightInfo_V[i].brightness;
+        }
+    }
+
+    getBrightnessInfo();
+    return -2;   //表示没有信息，需要隔3～5秒再次获取
 }

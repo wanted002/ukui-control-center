@@ -22,7 +22,7 @@
 
 #include <QProcess>
 #include <QMessageBox>
-
+#include <QIcon>
 #include <QDebug>
 #include <QMouseEvent>
 
@@ -30,11 +30,18 @@
 #define THEME_QT_SCHEMA                  "org.ukui.style"
 #define MODE_QT_KEY                      "style-name"
 
+#define SYSTEM_CMD_ERROR    -1
 enum {
     NOT_SUPPORT_P2P = 0,
     SUPPORT_P2P_WITHOUT_DEV,
     SUPPORT_P2P_PERFECT,
-    OP_NO_RESPONSE
+    OP_NO_RESPONSE,
+    NO_SERVICE
+};
+
+enum {
+    PROJECTION_RUNNING = 256,
+    DAEMON_NOT_RUNNING = 512
 };
 
 Projection::Projection()
@@ -48,29 +55,21 @@ Projection::Projection()
     pluginWidget->setAttribute(Qt::WA_DeleteOnClose);
     ui->setupUi(pluginWidget);
     projectionBtn = new SwitchButton(pluginWidget);
-    int result = system("checkDaemonRunning.sh");
-    if (result != 0) {
-        projectionBtn->setChecked(true);
-    }
-    ui->pinframe->hide();
 
+//   ui->pinframe->hide();
 
     connect(projectionBtn, SIGNAL(checkedChanged(bool)), this, SLOT(projectionButtonClickSlots(bool)));
-    m_pin = new QLabel(pluginWidget);
-    ui->label->setStyleSheet("QLabel{font-size: 18px; color: palette(windowText);}");
+    // m_pin = new QLabel(pluginWidget);
+    // ui->label->setStyleSheet("QLabel{font-size: 18px; color: palette(windowText);}");
+    ui->label->setStyleSheet("QLabel{color: palette(windowText);}");
     //~ contents_path /bluetooth/Open Bluetooth
     ui->titleLabel->setText(tr("Open Projection"));
-    ui->titleLabel->setStyleSheet("QLabel{font-size: 14px; color: palette(windowText);}");
-    ui->namelabel->setText(tr("Projection Name"));
-    ui->namelabel->setStyleSheet("QLabel{font-size: 14px; color: palette(windowText);}");
-    ui->pronamelabel->setStyleSheet("QLineEdit{background-color:transparent;"
-                                              "border-width:0;"
-                                              "border-style:outset}");
+    ui->titleLabel->setStyleSheet("QLabel{color: palette(windowText);}");
+
     m_pServiceInterface = new QDBusInterface("org.freedesktop.miracleagent",
                                              "/org/freedesktop/miracleagent",
                                              "org.freedesktop.miracleagent.op",
                                              QDBusConnection::sessionBus());
-
     QString path=QDir::homePath()+"/.config/miracast.ini";
     QSettings *setting=new QSettings(path,QSettings::IniFormat);
     setting->beginGroup("projection");
@@ -85,78 +84,78 @@ Projection::Projection()
         setting->setValue("host",hostName);
         setting->sync();
         setting->endGroup();
-    } else {
+        initComponent();
+    }else {
         hostName = setting->value("host").toString();
     }
-    ui->pronamelabel->setText(hostName);
-    ui->pronamelabel->setMaxLength(16);
-    ui->pronamelabel->setAlignment(Qt::AlignRight);
-    ui->pronamelabel->installEventFilter(this);
-
-
+    //ui->projectionNameWidget->setFixedHeight(40);
+    ui->projectionName->setText(hostName);
+    ui->projectionNameChange->setProperty("useIconHighlightEffect", 0x8);
+    ui->projectionNameChange->setPixmap(QIcon::fromTheme("document-edit-symbolic").pixmap(ui->projectionNameChange->size()));
+    ui->projectionNameWidget->installEventFilter(this);
     ui->horizontalLayout->addWidget(projectionBtn);
-    ui->horizontalLayout_21->addWidget(m_pin);
-
-
     initComponent();
 }
 
-bool Projection::eventFilter(QObject *watched, QEvent *event){
-    if (watched == ui->pronamelabel)
-        {
-            if (event->type() == QEvent::KeyPress)
-            {
-                QKeyEvent* keyevt = static_cast<QKeyEvent*>(event);
-                if ((keyevt->key() == Qt::Key_Return) ||
-                    (keyevt->key() == Qt::Key_Escape) ||
-                    (keyevt->key() == Qt::Key_Enter))   // Qt::Key_Return是大键盘的回车键 Qt::Key_Enter是小键盘的回车键
-                {
-                    QString str_name =ui->pronamelabel->text().remove(QRegExp("\\s"));
-                    QString path=QDir::homePath()+"/.config/miracast.ini";
-                    QSettings *setting=new QSettings(path,QSettings::IniFormat);
-                    setting->beginGroup("projection");
+void Projection::changeProjectionName(QString name){
+    qDebug() << name;
+    QString path=QDir::homePath()+"/.config/miracast.ini";
+    QSettings *setting=new QSettings(path,QSettings::IniFormat);
+    setting->beginGroup("projection");
+    setting->setValue("host",name);
+    setting->sync();
+    setting->endGroup();
+    m_pServiceInterface->call("UiSetName",name);
+    ui->projectionName->setText(name);
+}
 
-                    if (str_name != NULL) {
-                        setting->setValue("host",str_name);
-                        setting->sync();
-                        setting->endGroup();
-                        m_pServiceInterface->call("UiSetName",str_name);
-                        ui->pronamelabel->clearFocus();
-                    } else {
-                        qDebug()<<"回车";
-                        enter = true;
-                        QMessageBox::information(NULL, QStringLiteral("提示"), QStringLiteral("投屏端名不能为空"));
-                        hostName = setting->value("host").toString();                       
-                        ui->pronamelabel->setText(hostName);
-                        ui->pronamelabel->clearFocus();
-                    }
-                }
-            }
-            else if (event->type() == QEvent::FocusOut)
-            {
-                QString str_name =ui->pronamelabel->text().remove(QRegExp("\\s"));
-                QString path=QDir::homePath()+"/.config/miracast.ini";
-                QSettings *setting=new QSettings(path,QSettings::IniFormat);
-                setting->beginGroup("projection");
-                if (str_name != NULL) {
-                    setting->setValue("host",str_name);
-                    setting->sync();
-                    setting->endGroup();
-                    m_pServiceInterface->call("UiSetName",str_name);
-                    ui->pronamelabel->deselect();
-                } else {
-                    qDebug()<<"失去焦点";
-                    if (enter) {
-                        enter = false;
-                    } else {
-                        QMessageBox::information(NULL, QStringLiteral("提示"), QStringLiteral("投屏端名不能为空"));
-                        hostName = setting->value("host").toString();
-                        ui->pronamelabel->setText(hostName);
-                        ui->pronamelabel->deselect();
-                    }
-                }
+void Projection::showChangeProjectionNameDialog(){
+
+    ChangeProjectionName * dialog = new ChangeProjectionName();
+
+    connect(dialog, &ChangeProjectionName::sendNewProjectionName, [=](QString name){
+        changeProjectionName(name);
+    });
+    dialog->exec();
+}
+
+bool Projection::getWifiStatus() {
+    QDBusInterface interface( "org.freedesktop.NetworkManager",
+                              "/org/freedesktop/NetworkManager",
+                              "org.freedesktop.DBus.Properties",
+                              QDBusConnection::systemBus() );
+    // 获取当前wifi是否打开
+    QDBusReply<QVariant> m_result = interface.call("Get", "org.freedesktop.NetworkManager", "WirelessEnabled");
+    if (m_result.isValid()) {
+        bool status = m_result.value().toBool();
+        return status;
+    } else {
+        qDebug()<<"org.freedesktop.NetworkManager get invalid"<<endl;
+        return false;
+    }
+}
+
+void Projection::setWifiStatus(bool status) {
+
+    QString wifiStatus = status ? "on" : "off";
+    QString program = "nmcli";
+    QStringList arg;
+    arg << "radio" << "wifi" << wifiStatus;
+    QProcess *nmcliCmd = new QProcess(this);
+    nmcliCmd->start(program, arg);
+    nmcliCmd->waitForStarted();
+}
+
+bool Projection::eventFilter(QObject *watched, QEvent *event){
+
+    if (watched == ui->projectionNameWidget){
+        if (event->type() == QEvent::MouseButtonPress){
+            QMouseEvent * mouseEvent = static_cast<QMouseEvent *>(event);
+            if (mouseEvent->button() == Qt::LeftButton ){
+                showChangeProjectionNameDialog();
             }
         }
+    }
     return QObject::eventFilter(watched, event);
 }
 
@@ -193,6 +192,11 @@ Projection::~Projection()
 }
 
 QString Projection::get_plugin_name(){
+    QFile server("/usr/bin/miracle-wifid");
+    QFile agent("/usr/bin/miracle-agent");
+
+    if(!server.exists() || !agent.exists())
+        return NULL;
 
     return pluginName;
 }
@@ -202,24 +206,76 @@ int Projection::get_plugin_type(){
 }
 
 QWidget *Projection::get_plugin_ui(){
-    QDBusMessage result = m_pServiceInterface->call("PreCheck");
-    QList<QVariant> outArgs = result.arguments();
-    int projectionstatus = outArgs.at(0).value<int>();
-    qDebug() << "---->" << projectionstatus;
-    if (NOT_SUPPORT_P2P == projectionstatus) {
-        QMessageBox::information(NULL, QStringLiteral("提示"), QStringLiteral("由于无线网卡驱动不支持，投屏无法使用"));
-        ui->pronamelabel->setEnabled(false);
+    int res;
+    int projectionstatus;
+
+    do{
+        res = system("checkDaemonRunning.sh");
+    }while(SYSTEM_CMD_ERROR == res);
+
+    if (res == PROJECTION_RUNNING) {
+        projectionBtn->setChecked(true);
+    }
+    else {
+        projectionBtn->setChecked(false);//projection not switch-on, or daemon programs not running at all
+    }
+
+    if (res == DAEMON_NOT_RUNNING){
+        projectionstatus = NO_SERVICE;
+    }
+    else{
+        QDBusMessage result = m_pServiceInterface->call("PreCheck");
+        QList<QVariant> outArgs = result.arguments();
+        projectionstatus = outArgs.at(0).value<int>();
+        qDebug() << "---->" << projectionstatus;
+    }
+
+    ui->widget->hide();
+    ui->label->hide();
+    ui->label_3->hide();
+    ui->widget_2->show();
+    ui->label_setsize->setText("");
+
+    //First, we check whether service process is running
+    if (NO_SERVICE == projectionstatus) {
+        ui->label_2->setText("服务异常，可能由于软件包未正确安装");
+        ui->projectionNameWidget->setEnabled(false);
         projectionBtn->setEnabled(false);
     }
-    else if (SUPPORT_P2P_WITHOUT_DEV == projectionstatus) {
-        QMessageBox::information(NULL, QStringLiteral("提示"), QStringLiteral("由于无线网卡驱动限制，投屏开启后会关闭网络管理器，导致wifi断开。\n当不使用投屏时请关闭投屏功能，否则会影响网络使用"));
-        ui->pronamelabel->setEnabled(true);
-        projectionBtn->setEnabled(true);
+    //Then let's check whether hardware is ok
+    else if (NOT_SUPPORT_P2P == projectionstatus) {
+        ui->label_2->setText("未检测到无线网卡或网卡驱动不支持，投屏功能不可用");
+        ui->projectionNameWidget->setEnabled(false);
+        projectionBtn->setEnabled(false);
+    }
+    else if (SUPPORT_P2P_WITHOUT_DEV == projectionstatus
+             || SUPPORT_P2P_PERFECT == projectionstatus) {
+        if(getWifiStatus())
+        {
+            qDebug()<<"wifi is on now";
+            if(SUPPORT_P2P_WITHOUT_DEV == projectionstatus)
+                ui->label_3->setText("使用时请保持WLAN处于开启状态；开启投屏会断开无线网络的接入");
+            if(SUPPORT_P2P_PERFECT == projectionstatus)
+                ui->label_3->setText("使用时请保持WLAN处于开启状态；开启投屏会短暂中断无线连接");
+            ui->widget->show();
+            ui->label->show();
+            ui->label_3->show();
+            ui->widget_2->hide();
+            ui->projectionNameWidget->setEnabled(true);
+            projectionBtn->setEnabled(true);
+        }
+        else
+        {
+            qDebug()<<"wifi is off now";
+            ui->label_2->setText("WLAN未开启，请打开WLAN开关");
+            ui->projectionNameWidget->setEnabled(false);
+            projectionBtn->setEnabled(false);
+        }
     }
     else if (OP_NO_RESPONSE == projectionstatus) {
-        QMessageBox::information(NULL, QStringLiteral("提示"), QStringLiteral("查询无线网卡暂时无响应，请稍后再试"));
-        ui->pronamelabel->setEnabled(true);
-        projectionBtn->setEnabled(true);
+        ui->label_2->setText("无线网卡繁忙，请稍后再试");
+        ui->projectionNameWidget->setEnabled(false);
+        projectionBtn->setEnabled(false);
     }
 
     return pluginWidget;
@@ -236,18 +292,17 @@ const QString Projection::name() const {
 
 void Projection::projectionPinSlots(QString type, QString pin) {
     if (type.contains("clear")) {
-        m_pin->clear();
+        //m_pin->clear();
     } else {
         qDebug()<<pin;
-        m_pin->setText(pin);
+        //m_pin->setText(pin);
     }
 }
 
 void Projection::projectionButtonClickSlots(bool status) {
 
-    qDebug() << "aaaaaa";
     if (status){        
-        m_pServiceInterface->call("Start",ui->pronamelabel->text(),"");
+         m_pServiceInterface->call("Start",ui->projectionName->text(),"");
     } else {
         m_pServiceInterface->call("Stop");
     }
@@ -276,4 +331,3 @@ void Projection::initComponent(){
     addWgt->setLayout(addLyt);
     addWgt->hide();
 }
-

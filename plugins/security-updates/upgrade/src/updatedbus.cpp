@@ -55,8 +55,12 @@ void UpdateDbus::onRequestSendDesktopNotify(QString message)
                          "/org/freedesktop/Notifications",
                          "org.freedesktop.Notifications",
                          QDBusConnection::sessionBus());
+    if (!notifyMsg.compare(message)) {
+        return ;
+    }
+    notifyMsg = message;
     QList<QVariant> args;
-    args<<(tr("ukui-control-center"))
+    args<<(tr("System-Upgrade"))
        <<((unsigned int) 0)
       <<("ukui-control-center")
      <<tr("ukui-control-center-update") //显示的是什么类型的信息  控制面板-更新提示
@@ -240,7 +244,7 @@ void UpdateDbus::getAppMessageSignal(QMap<QString, QVariant> map, QStringList ur
         if(it.key() == "size")
         {
             dateQVariant = it.value();
-            appAllMsg.packageSize = dateQVariant.toInt();
+            appAllMsg.packageSize = dateQVariant.toString().toLong();
         }
         if(it.key() == "description")
         {
@@ -257,7 +261,7 @@ void UpdateDbus::getAppMessageSignal(QMap<QString, QVariant> map, QStringList ur
             msg.name = nameList.at(i);
             msg.fullname = fullnameList.at(i);
             QString size = sizeList.at(i);
-            msg.size = size.toInt();
+            msg.size = size.toLong();
             appAllMsg.msg.depList.append(msg);
         }
     }
@@ -304,7 +308,6 @@ void UpdateDbus::getAptSignal(QString arg, QMap<QString, QVariant> map)
     aptStatus = arg;
 
     qDebug() << "安装状态" << arg;
-
 
     QVariantMap::Iterator it;
     for (it = map.begin(); it != map.end(); ++it) {

@@ -13,7 +13,14 @@ struct UrlMsg //记录单包信息：包名、全名、链接、大小
     QString name = "";
     QString fullname = "";
     QString url = "";
-    int size;
+    long size = 0;
+};
+
+struct pkgProgress
+{
+    QString name;
+    mutable int downloadProgress = 0;
+    mutable int installProgress = 0;
 };
 
 struct AppMsg //记录当前包信息：包名、依赖列表、总大小、获取依赖状态
@@ -28,11 +35,11 @@ struct AppAllMsg
     QString name;
     QString section;
     QString origin;
-    int installedSize;
+    long installedSize;
     QString maintainer;
     QString source;
     QString version;
-    int packageSize;
+    long packageSize;
     QString shortDescription;
     QString longDescription;
 
@@ -46,7 +53,6 @@ struct AppAllMsg
     bool isInstalled;
     bool upgradeable;
     AppMsg msg;
-
 };
 Q_DECLARE_METATYPE(AppMsg) //注册AppMsg结构用于信号槽传输
 Q_DECLARE_METATYPE(AppAllMsg) //注册AppMsg结构用于信号槽传输
