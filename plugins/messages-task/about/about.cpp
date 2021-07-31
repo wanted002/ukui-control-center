@@ -51,7 +51,6 @@ const QString vFour = "v4";
 
 About::About() : mFirstLoad(true)
 {
-    //~ contents_path /about/About
     pluginName = tr("About");
     pluginType = NOTICEANDTASKS;
 }
@@ -123,12 +122,20 @@ void About::setupDesktopComponent()
         }
     }
 
-    QString name = qgetenv("USER");
-    if (name.isEmpty()) {
-        name = qgetenv("USERNAME");
-    }
+    qlonglong uid = getuid();
+    QDBusInterface user("org.freedesktop.Accounts",
+                        "/org/freedesktop/Accounts",
+                        "org.freedesktop.Accounts",
+                        QDBusConnection::systemBus());
+    QDBusMessage result = user.call("FindUserById", uid);
+    QString userpath = result.arguments().value(0).value<QDBusObjectPath>().path();
+    QDBusInterface *userInterface = new QDBusInterface ("org.freedesktop.Accounts",
+                                          userpath,
+                                        "org.freedesktop.Accounts.User",
+                                        QDBusConnection::systemBus());
+    QString userName = userInterface->property("RealName").value<QString>();
 
-    ui->userContent->setText(name);
+    ui->userContent->setText(userName);
 }
 
 void About::setupKernelCompenent()
@@ -395,6 +402,16 @@ void About::initSearchText()
     ui->cpuLabel->setText(tr("CPU"));
     //~ contents_path /about/Memory
     ui->memoryLabel->setText(tr("Memory"));
+    //~ contents_path /about/Desktop
+    ui->label_3->setText(tr("Desktop"));
+    //~ contents_path /about/User
+    ui->label_6->setText(tr("User"));
+    //~ contents_path /about/Active Status
+    ui->label_5->setText(tr("Active Status"));
+    //~ contents_path /about/Active
+    ui->activeButton->setText(tr("Active"));
+    //~ contents_path /about/Protocol
+    ui->trialButton->setText(tr("Protocol"));
     ui->diskLabel->setVisible(false);
 }
 

@@ -128,6 +128,8 @@ void UserInfo::initSearchText() {
     ui->loginpwdLabel->setText(tr("Login no passwd"));
     //~ contents_path /userinfo/enable autoLogin
     ui->autologinLabel->setText(tr("enable autoLogin"));
+    //~ contents_path /userinfo/Group
+    ui->changeGroupBtn->setText(tr("Group"));
 }
 
 QString UserInfo::_accountTypeIntToString(int type){
@@ -426,6 +428,7 @@ void UserInfo::initComponent(){
     QHBoxLayout *addLyt = new QHBoxLayout;
 
     QLabel * iconLabel = new QLabel();
+    //~ contents_path /userinfo/Add new user
     QLabel * textLabel = new QLabel(tr("Add new user"));
     QPixmap pixgray = ImageUtil::loadSvg(":/img/titlebar/add.svg", "black", 12);
     iconLabel->setPixmap(pixgray);
@@ -1141,9 +1144,26 @@ void UserInfo::showChangePwdDialog(QString username){
         if (!getuid() || !user.current)
             dialog->haveCurrentPwdEdit(false);
 
-        connect(dialog, &ChangePwdDialog::passwd_send, this, [=](QString pwd){
+        connect(dialog, &ChangePwdDialog::passwd_send, this, [=](QString oldpwd, QString pwd){
 
-                changeUserPwd(pwd, username);
+//                changeUserPwd(pwd, username);
+
+            QString output;
+
+            char * cmd = g_strdup_printf("/usr/bin/changeuserpwd %s %s", oldpwd.toLatin1().data(), pwd.toLatin1().data());
+
+            FILE   *stream;
+            char buf[256];
+
+            if ((stream = popen(cmd, "r" )) == NULL){
+                return -1;
+            }
+
+            while(fgets(buf, 256, stream) != NULL){
+                output = QString(buf).simplified();
+            }
+
+            pclose(stream);
 
         });
         connect(dialog, &ChangePwdDialog::passwd_send2, this, [=](QString pwd){

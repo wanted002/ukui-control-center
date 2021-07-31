@@ -779,6 +779,11 @@ int Widget::getPrimaryScreenID()
     return screenId;
 }
 
+void Widget::setScreenIsApply(bool isApply)
+{
+    mIsScreenAdd = !isApply;
+}
+
 void Widget::showNightWidget(bool judge)
 {
     if (judge) {
@@ -827,23 +832,23 @@ void Widget::clearOutputIdentifiers()
 
 void Widget::addBrightnessFrame(QString name, bool openFlag, QString serialNum)
 {
-    if (mIsBattery && !name.contains("eDP"))  //笔记本非内置
+    if (mIsBattery && (!name.contains("eDP") && !name.contains("DisplayPort-0", Qt::CaseInsensitive)))  //笔记本非内置
         return;
     for (int i = 0; i < BrightnessFrameV.size(); ++i) {  //已经有了
         if (name == BrightnessFrameV[i]->getOutputName())
             return;
     }
-
     BrightnessFrame *frame = nullptr;
-    if (mIsBattery && name.contains("eDP")) {
+    if (mIsBattery && (name.contains("eDP") || name.contains("DisplayPort-0", Qt::CaseInsensitive))) {
         frame = new BrightnessFrame(name, true, serialNum);
     } else if(!mIsBattery) {
         frame = new BrightnessFrame(name, false, serialNum);
     }
-    BrightnessFrameV.push_back(frame);
-
-    ui->unifyBrightLayout->addWidget(frame);
-    frame->runConnectThread(openFlag);
+    if (frame != nullptr) {
+        BrightnessFrameV.push_back(frame);
+        ui->unifyBrightLayout->addWidget(frame);
+        frame->runConnectThread(openFlag);
+    }
 
 }
 
@@ -1090,6 +1095,7 @@ void Widget::applyNightModeSlot()
                              tr("Open time should be earlier than close time!"));
         return;
     }
+
     setNightMode(mNightButton->isChecked());
 }
 
@@ -1136,18 +1142,21 @@ void Widget::setScreenKDS(QString kdsConfig)
                 screens[i]->setEnabled((i == 0));
             }
         }
+        delayApply();
     } else if (kdsConfig == "second") {
         for (int i = 0; i < screens.size(); i++) {
             if (!screens[i].isNull()) {
                 screens[i]->setEnabled((i != 0));
             }
         }
+        delayApply();
     } else {
         Q_FOREACH(KScreen::OutputPtr output, screens) {
             if (!output.isNull()) {
                 output->setEnabled(true);
             }
         }
+        delayApply();
     }
 }
 
@@ -1204,6 +1213,7 @@ void Widget::kdsScreenchangeSlot(QString status)
             showBrightnessFrame(2);
         }
     });
+
 }
 
 void Widget::delayApply()
@@ -1601,6 +1611,7 @@ void Widget::initConnection()
     connect(mUnifyButton, &SwitchButton::checkedChanged,
             [this] {
         slotUnifyOutputs();
+        setScreenIsApply(true);
         delayApply();
 		showBrightnessFrame();
     });
@@ -1730,9 +1741,9 @@ void Widget::setNightMode(const bool nightMode)
     } else {
         mNightConfig["Active"] = true;
         if (ui->sunradioBtn->isChecked()) {
-            mNightConfig["EveningBeginFixed"] = "17:55:00";
-            mNightConfig["MorningBeginFixed"] = "05:55:04";
-            mNightConfig["Mode"] = 0;
+            mNightConfig["EveningBeginFixed"] = "17:55:01";
+            mNightConfig["MorningBeginFixed"] = "05:55:00";
+            mNightConfig["Mode"] = 2;
         } else if (ui->customradioBtn->isChecked()) {
             mNightConfig["EveningBeginFixed"] = ui->opHourCom->currentText() + ":"
                                                 + ui->opMinCom->currentText() + ":00";
@@ -1845,7 +1856,7 @@ void Widget::initNightStatus()
 
     this->mIsNightMode = mNightConfig["Active"].toBool();
     ui->temptSlider->setValue(mNightConfig["CurrentColorTemperature"].toInt());
-    if (mNightConfig["Mode"].toInt() != 2) {
+    if (mNightConfig["EveningBeginFixed"].toString() == "17:55:01") {
         ui->sunradioBtn->setChecked(true);
     } else {
         ui->customradioBtn->setChecked(true);

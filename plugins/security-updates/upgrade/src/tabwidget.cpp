@@ -40,6 +40,7 @@ void TabWid::initDbus()
     isAutoBackupSBtn->setChecked(true);
     checkUpdateBtn->stop();
     //    checkUpdateBtn->setText(tr("检查更新"));
+
     checkUpdateBtn->setText(tr("Check Update"));
 
     checkUpdateBtn->setText(tr("initializing"));
@@ -83,11 +84,15 @@ void TabWid::getAutoUpgradeStatus()
         isAutoUpgrade = true;
         /*如果自动更新在备份中，那就直接绑定备份还原信号即可*/
         isAllUpgrade = true;
-        autoUpdateLoadUpgradeList();
-        bacupInit(true);
-        backup->creatInterface();
-        backup->setProgress = true;
-        backupProgress(0);
+        bool ret = autoUpdateLoadUpgradeList(true  );
+        if (ret) {
+            bacupInit(true);
+            backup->creatInterface();
+            backup->setProgress = true;
+            backupProgress(0);
+        } else {
+            bacupInit(false);
+        }
     } else if (!ret.compare("download")) {
         /*如果自动更新在下载中，调用dbus去kill掉下载程序，继续原流程，不进行多余操作*/
         QFile file("/var/run/apt-download.pid");
@@ -106,7 +111,7 @@ void TabWid::getAutoUpgradeStatus()
         isAllUpgrade = true;
         checkUpdateBtn->hide();
         checkUpdateBtn->setText(tr("UpdateAll"));
-        autoUpdateLoadUpgradeList();
+        autoUpdateLoadUpgradeList(false);
     } else if (!ret.compare("idle")) {
         /*如果没有进行自动更新，那就不需要操作 */
         checkUpdateBtn->setEnabled(true);
@@ -120,19 +125,46 @@ void TabWid::getAutoUpgradeStatus()
     }
 }
 
-void TabWid::autoUpdateLoadUpgradeList()
+bool TabWid::autoUpdateLoadUpgradeList(bool isBackUp)
 {
     QSettings get("/var/lib/kylin-auto-upgrade/kylin-autoupgrade-pkglist.conf", QSettings::IniFormat);
-    QString str = get.value("DOWNLOAD/pkgname").toString();
-    QStringList list;
-    if(str.contains(" ")) {
-        list = str.split(" ");
+    QString str;
+    if (isBackUp)
+        str = get.value("DOWNLOAD/pkgname").toString();
+    else
+        str = get.value("DOWNLOAD/uninstpkg").toString();
+    qDebug() << "----------pkgname---->" << str;
+
+    if (str.isNull()) {
+        versionInformationLab->setText(tr("Your system is the latest!"));
+        QString updatetime = tr("No Information!");
+        QSqlQuery queryInstall(QSqlDatabase::database("A"));
+        queryInstall.exec("select * from installed order by id desc");
+        while (queryInstall.next()) {
+            QString statusType = queryInstall.value("keyword").toString();
+            if (statusType == "" || statusType =="1") {
+                updatetime = queryInstall.value("time").toString();
+                break;
+            }
+        }
+        lastRefreshTime->setText(tr("Last refresh:")+ updatetime);
+        lastRefreshTime->show();
+        checkUpdateBtn->setText(tr("Check Update"));
+        return false;
+    } else {
+        QStringList list;
+        if(str.contains(" ")) {
+            list = str.split(" ");
+        } else {
+            list << str;
+        }
+        versionInformationLab->setText(tr("Downloading and installing updates..."));
+        lastRefreshTime->hide();
+        allProgressBar->show();
+        allProgressBar->setValue(10);
+        updateMutual->getAppMessage(list);
+        return true;
     }
-    versionInformationLab->setText(tr("Downloading and installing updates..."));
-    lastRefreshTime->hide();
-    allProgressBar->show();
-    allProgressBar->setValue(10);
-    updateMutual->getAppMessage(list);
 }
 
 void TabWid::unableToConnectSource()
@@ -536,6 +568,7 @@ void TabWid::allComponents()
 
     updateSettingLab = new TitleLabel();
     //    updateSettingLab->setText(tr("更新设置"));
+    //~ contents_path /upgrade/Update Settings
     updateSettingLab->setText(tr("Update Settings"));
     updateSettingLab->setFixedHeight(25);
     updateSettingWidget = new QWidget(this);
